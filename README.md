@@ -107,10 +107,6 @@ docker pull maimai977/onebot-manager
 docker run -d \
   --name onebot-manager \
   --network host \
-  -v ./onebot:/app/onebot \
-  -v ./logs:/app/logs \
-  -v ./config.json:/app/config.json \
-  -v ./bot-manager-config.json:/app/bot-manager-config.json \
   maimai977/onebot-manager
 ```
 
