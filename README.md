@@ -106,7 +106,6 @@ docker pull maimai977/onebot-manager
 # 第一次运行
 docker run -it \
   --name onebot-manager \
-  -v $(pwd):/app \
   maimai977/onebot-manager \
   /bin/bash
 # 创建配置文件
