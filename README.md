@@ -105,12 +105,13 @@ noed .
 docker pull maimai977/onebot-manager
 
 # 运行容器
-ddocker run -d \
+docker run -d \
   --name onebot-manager \
-  --network host \                    # 使用宿主机网络，自动开放所有端口
+  --network host \          # 使用宿主机网络，自动开放所有端口
+  -v $(pwd):/app/host \
   -v ./data:/app/onebot \
   -v ./logs:/app/logs \
-  maimai977/onebot-manager
+  maimai977/onebot-manager:latest
 
 ```
 
