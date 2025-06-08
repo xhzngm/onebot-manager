@@ -104,7 +104,7 @@ noed .
 docker pull maimai977/onebot-manager
 
 # 第一次运行
-docker run -it --rm \
+docker run -it \
   --name onebot-manager \
   -v $(pwd):/app \
   maimai977/onebot-manager \
