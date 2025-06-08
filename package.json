@@ -1,0 +1,39 @@
+{
+  "name": "onebot-manager",
+  "version": "2.0.0",
+  "description": "OneBot机器人管理WebUI - 增强版",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "install-lagrange": "node modules/LagrangeInstaller.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "socket.io": "^4.7.4",
+    "fs-extra": "^11.1.1",
+    "cors": "^2.8.5",
+    "node-schedule": "^2.1.1",
+    "http-proxy-middleware": "^2.0.6",
+    "pidusage": "^3.0.2",
+    "axios": "^1.6.0",
+    "adm-zip": "^0.5.10",
+    "cli-progress": "^3.12.0",
+    "commander": "^11.1.0",
+    "inquirer": "^8.2.6"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "keywords": [
+    "onebot",
+    "qq",
+    "bot",
+    "管理",
+    "webui",
+    "lagrange"
+  ],
+  "author": "OneBot Manager Team",
+  "license": "MIT"
+}

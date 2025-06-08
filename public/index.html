@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OneBot机器人管理器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.3.4/vue.global.prod.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 登录界面 -->
+        <div v-if="!authenticated" class="login-container">
+            <div class="login-card">
+                <div class="login-header">
+                    <i class="fas fa-robot"></i>
+                    <h2>OneBot机器人管理器</h2>
+                    <p>请输入API Key登录</p>
+                </div>
+                <form @submit.prevent="login" class="login-form">
+                    <div class="input-group">
+                        <i class="fas fa-key"></i>
+                        <input 
+                            type="password" 
+                            v-model="apiKey" 
+                            placeholder="API Key"
+                            required
+                        >
+                    </div>
+                    <button type="submit" class="login-btn" :disabled="loading">
+                        <i class="fas fa-sign-in-alt" v-if="!loading"></i>
+                        <i class="fas fa-spinner fa-spin" v-if="loading"></i>
+                        {{ loading ? '登录中...' : '登录' }}
+                    </button>
+                </form>
+                <div v-if="errorMessage" class="error-message">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    {{ errorMessage }}
+                </div>
+            </div>
+        </div>
+
+        <!-- 主界面 -->
+        <div v-if="authenticated" class="main-container">
+            <!-- 顶部导航 -->
+            <header class="header">
+                <div class="header-content">
+                    <div class="logo">
+                        <i class="fas fa-robot"></i>
+                        <h1>OneBot机器人管理器</h1>
+                    </div>
+                    <div class="header-stats">
+                        <div class="stat-item">
+                            <span class="stat-number">{{ bots.length }}</span>
+                            <span class="stat-label">总计</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-number">{{ runningCount }}</span>
+                            <span class="stat-label">运行中</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-number">{{ stoppedCount }}</span>
+                            <span class="stat-label">已停止</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-number">{{ onlineCount }}</span>
+                            <span class="stat-label">在线</span>
+                        </div>
+                    </div>
+                    <div class="header-actions">
+                        <button @click="showAddBotModal = true" class="action-btn">
+                            <i class="fas fa-plus"></i>
+                            添加机器人
+                        </button>
+                        <button @click="restartAllBots" class="action-btn">
+                            <i class="fas fa-redo"></i>
+                            重启全部
+                        </button>
+                        <button @click="showSettingsModal = true" class="action-btn">
+                            <i class="fas fa-cog"></i>
+                            系统设置
+                        </button>
+                        <button @click="logout" class="action-btn logout-btn">
+                            <i class="fas fa-sign-out-alt"></i>
+                            退出
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- 机器人列表 -->
+            <main class="main-content">
+                <div class="bot-grid">
+                    <div v-for="bot in bots" :key="bot.id" class="bot-card" :class="'status-' + bot.status">
+                        <div class="bot-header">
+                            <div class="bot-info">
+                                <h3>{{ bot.id }}</h3>
+                                <span class="bot-uin">UIN: {{ bot.uin || '未设置' }}</span>
+                            </div>
+                            <div class="bot-status" :class="'status-' + bot.status">
+                                <i :class="getStatusIcon(bot.status)"></i>
+                                {{ getStatusText(bot.status) }}
+                            </div>
+                        </div>
+
+                        <div class="bot-details">
+                            <div class="detail-item">
+                                <span class="label">协议:</span>
+                                <span class="value">{{ bot.protocol || 'Linux' }}</span>
+                            </div>
+                            <div class="detail-item" v-if="bot.apiEndpoint">
+                                <span class="label">API端口:</span>
+                                <span class="value">{{ bot.apiEndpoint.port }}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">登录状态:</span>
+                                <span class="value" :class="'login-' + bot.loginStatus">
+                                    {{ getLoginStatusText(bot.loginStatus) }}
+                                </span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">自动重启:</span>
+                                <span class="value">
+                                    <label class="switch">
+                                        <input type="checkbox" 
+                                               :checked="bot.autoRestart" 
+                                               @change="toggleAutoRestart(bot.id)">
+                                        <span class="slider"></span>
+                                    </label>
+                                </span>
+                            </div>
+                            <div class="detail-item" v-if="bot.restartCount > 0">
+                                <span class="label">重启次数:</span>
+                                <span class="value">{{ bot.restartCount }}</span>
+                            </div>
+                        </div>
+
+                        <!-- 二维码显示 -->
+                        <div v-if="bot.hasQrCode" class="qr-code-section">
+                            <div class="qr-alert">
+                                <i class="fas fa-qrcode"></i>
+                                <span>检测到二维码，请扫码登录</span>
+                            </div>
+                            <img :src="bot.qrCodePath" 
+                                 alt="登录二维码" class="qr-image"
+                                 @click="showQrModal(bot)">
+                        </div>
+
+                        <div class="bot-actions">
+                            <button @click="startBot(bot.id)" 
+                                    :disabled="bot.status === 'running' || bot.status === 'starting'"
+                                    class="action-btn start-btn">
+                                <i class="fas fa-play"></i>
+                                启动
+                            </button>
+                            <button @click="stopBot(bot.id)"
+                                    :disabled="bot.status === 'stopped' || bot.status === 'stopping'"
+                                    class="action-btn stop-btn">
+                                <i class="fas fa-stop"></i>
+                                停止
+                            </button>
+                            <button @click="restartBot(bot.id)"
+                                    :disabled="bot.status === 'stopped'"
+                                    class="action-btn restart-btn">
+                                <i class="fas fa-redo"></i>
+                                重启
+                            </button>
+                            <button @click="openConfigModal(bot)" class="action-btn config-btn">
+                                <i class="fas fa-cog"></i>
+                                配置
+                            </button>
+                            <button @click="openLogsModal(bot)" class="action-btn logs-btn">
+                                <i class="fas fa-file-alt"></i>
+                                日志
+                            </button>
+                            <button @click="deleteBot(bot.id)" class="action-btn delete-btn">
+                                <i class="fas fa-trash"></i>
+                                删除
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 空状态 -->
+                    <div v-if="bots.length === 0" class="empty-state">
+                        <i class="fas fa-robot"></i>
+                        <h3>暂无机器人</h3>
+                        <p>点击"添加机器人"开始创建您的第一个机器人</p>
+                        <button @click="showAddBotModal = true" class="action-btn">
+                            <i class="fas fa-plus"></i>
+                            添加机器人
+                        </button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- 全局日志面板 -->
+            <div class="logs-panel" :class="{ open: showGlobalLogs }">
+                <div class="logs-header">
+                    <h3>
+                        <i class="fas fa-terminal"></i>
+                        实时日志
+                    </h3>
+                    <div class="logs-controls">
+                        <button @click="clearGlobalLogs" class="action-btn small">
+                            <i class="fas fa-trash"></i>
+                            清空
+                        </button>
+                        <button @click="showGlobalLogs = !showGlobalLogs" class="toggle-logs-btn">
+                            <i :class="showGlobalLogs ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="logs-content" ref="globalLogsContainer">
+                    <div v-for="log in globalLogs" :key="log.timestamp" 
+                         class="log-entry" :class="'log-' + log.type">
+                        <span class="log-time">{{ log.time }}</span>
+                        <span class="log-bot">{{ log.botId }}</span>
+                        <span class="log-message">{{ log.message }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 添加机器人模态框 -->
+        <div v-if="showAddBotModal" class="modal-overlay" @click="closeModals">
+            <div class="modal" @click.stop>
+                <div class="modal-header">
+                    <h3>添加机器人</h3>
+                    <button @click="closeModals" class="close-btn">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form @submit.prevent="addBot" class="modal-form">
+                    <div class="form-group">
+                        <label>机器人ID</label>
+                        <input type="text" v-model="newBot.id" placeholder="例如: bot1" required>
+                        <small>用于标识机器人的唯一ID</small>
+                    </div>
+                    <div class="form-group">
+                        <label>QQ号</label>
+                        <input type="number" v-model="newBot.uin" placeholder="QQ号码" required>
+                        <small>机器人登录的QQ号</small>
+                    </div>
+                    <div class="form-group">
+                        <label>协议类型</label>
+                        <select v-model="newBot.protocol">
+                            <option value="Linux">Linux</option>
+                            <option value="Windows">Windows</option>
+                            <option value="MacOS">MacOS</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>API端口</label>
+                        <input type="number" v-model="newBot.port" placeholder="8081" min="1024" max="65535">
+                        <small>正向WebSocket监听端口（推荐使用8081）</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Access Token (可选)</label>
+                        <input type="text" v-model="newBot.accessToken" placeholder="访问令牌">
+                        <small>用于API访问的安全令牌</small>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" @click="closeModals" class="cancel-btn">取消</button>
+                        <button type="submit" class="confirm-btn">添加</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 配置模态框 -->
+        <div v-if="showConfigModal" class="modal-overlay" @click="closeModals">
+            <div class="modal large" @click.stop>
+                <div class="modal-header">
+                    <h3>配置机器人 - {{ currentBot?.id }}</h3>
+                    <button @click="closeModals" class="close-btn">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="config-tabs">
+                    <button @click="configTab = 'basic'" 
+                            :class="{ active: configTab === 'basic' }">
+                        基础配置
+                    </button>
+                    <button @click="configTab = 'api'" 
+                            :class="{ active: configTab === 'api' }">
+                        API配置
+                    </button>
+                    <button @click="configTab = 'advanced'" 
+                            :class="{ active: configTab === 'advanced' }">
+                        高级配置
+                    </button>
+                    <button @click="configTab = 'raw'" 
+                            :class="{ active: configTab === 'raw' }">
+                        原始配置
+                    </button>
+                </div>
+                <form @submit.prevent="saveConfig" class="config-form">
+                    <!-- 基础配置 -->
+                    <div v-if="configTab === 'basic'" class="config-section">
+                        <div class="form-group">
+                            <label>QQ号</label>
+                            <input type="number" v-model="botConfig.account.uin" required>
+                        </div>
+                        <div class="form-group">
+                            <label>协议</label>
+                            <select v-model="botConfig.account.protocol">
+                                <option value="Linux">Linux</option>
+                                <option value="Windows">Windows</option>
+                                <option value="MacOS">MacOS</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>自动重连</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="botConfig.account.autoReconnect">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>获取最优服务器</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="botConfig.account.getOptimumServer">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>忽略自己的消息</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="botConfig.message.ignoreSelf">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>字符串方式推送</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="botConfig.message.stringPost">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- API配置 -->
+                    <div v-if="configTab === 'api'" class="config-section">
+                        <div v-for="(impl, index) in botConfig.implementations" :key="index" 
+                             class="implementation-group">
+                            <div class="implementation-header">
+                                <h4>接口 {{ index + 1 }}</h4>
+                                <button type="button" @click="removeImplementation(index)" 
+                                        class="remove-btn" v-if="botConfig.implementations.length > 1">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>类型</label>
+                                    <select v-model="impl.Type">
+                                        <option value="ForwardWebSocket">正向WebSocket</option>
+                                        <option value="ReverseWebSocket">反向WebSocket</option>
+                                        <option value="Http">HTTP</option>
+                                        <option value="ReverseHttp">反向HTTP</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>主机</label>
+                                    <input type="text" v-model="impl.Host" placeholder="127.0.0.1">
+                                </div>
+                                <div class="form-group">
+                                    <label>端口</label>
+                                    <input type="number" v-model="impl.Port" min="1024" max="65535">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>路径后缀</label>
+                                <input type="text" v-model="impl.Suffix" placeholder="/onebot/v11/ws">
+                            </div>
+                            <div class="form-group">
+                                <label>Access Token</label>
+                                <input type="text" v-model="impl.AccessToken" placeholder="可选">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>重连间隔 (ms)</label>
+                                    <input type="number" v-model="impl.ReconnectInterval" min="1000">
+                                </div>
+                                <div class="form-group">
+                                    <label>心跳间隔 (ms)</label>
+                                    <input type="number" v-model="impl.HeartBeatInterval" min="1000">
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" @click="addImplementation" class="add-btn">
+                            <i class="fas fa-plus"></i>
+                            添加接口
+                        </button>
+                    </div>
+
+                    <!-- 高级配置 -->
+                    <div v-if="configTab === 'advanced'" class="config-section">
+                        <div class="form-group">
+                            <label>日志级别</label>
+                            <select v-model="botConfig.logging.logLevel">
+                                <option value="Trace">Trace</option>
+                                <option value="Debug">Debug</option>
+                                <option value="Information">Information</option>
+                                <option value="Warning">Warning</option>
+                                <option value="Error">Error</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>签名服务器URL</label>
+                            <input type="url" v-model="botConfig.signServer.url" placeholder="https://sign-server.example.com">
+                        </div>
+                        <div class="form-group">
+                            <label>签名代理URL</label>
+                            <input type="url" v-model="botConfig.signServer.proxyUrl" placeholder="https://proxy.example.com">
+                        </div>
+                        <div class="form-group">
+                            <label>音乐签名服务器URL</label>
+                            <input type="url" v-model="botConfig.signServer.musicUrl" placeholder="https://music-sign.example.com">
+                        </div>
+                        <div class="form-group">
+                            <label>控制台兼容模式</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="botConfig.qrCode.consoleCompatibilityMode">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 原始配置 -->
+                    <div v-if="configTab === 'raw'" class="config-section">
+                        <div class="form-group">
+                            <label>JSON配置</label>
+                            <textarea v-model="rawConfig" class="raw-config" rows="20" 
+                                      placeholder="请输入有效的JSON配置"></textarea>
+                            <small>直接编辑JSON配置文件，请确保格式正确</small>
+                        </div>
+                        <div class="config-actions">
+                            <button type="button" @click="formatRawConfig" class="action-btn">
+                                <i class="fas fa-magic"></i>
+                                格式化
+                            </button>
+                            <button type="button" @click="validateRawConfig" class="action-btn">
+                                <i class="fas fa-check"></i>
+                                验证
+                            </button>
+                            <button type="button" @click="resetToDefault" class="action-btn">
+                                <i class="fas fa-undo"></i>
+                                重置为默认
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" @click="closeModals" class="cancel-btn">取消</button>
+                        <button type="submit" class="confirm-btn">保存配置</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 日志模态框 -->
+        <div v-if="showLogsModal" class="modal-overlay" @click="closeModals">
+            <div class="modal large" @click.stop>
+                <div class="modal-header">
+                    <h3>日志 - {{ currentBot?.id }}</h3>
+                    <div class="logs-controls">
+                        <button @click="clearBotLogs" class="action-btn">
+                            <i class="fas fa-trash"></i>
+                            清空日志
+                        </button>
+                        <button @click="downloadBotLogs" class="action-btn">
+                            <i class="fas fa-download"></i>
+                            下载日志
+                        </button>
+                        <button @click="closeModals" class="close-btn">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="logs-container" ref="botLogsContainer">
+                    <div v-for="log in currentBotLogs" :key="log.timestamp" 
+                         class="log-entry" :class="'log-' + log.type">
+                        <span class="log-time">{{ log.time }}</span>
+                        <span class="log-message">{{ log.message }}</span>
+                    </div>
+                    <div v-if="currentBotLogs.length === 0" class="empty-logs">
+                        <i class="fas fa-file-alt"></i>
+                        <p>暂无日志</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 系统设置模态框 -->
+        <div v-if="showSettingsModal" class="modal-overlay" @click="closeModals">
+            <div class="modal extra-large" @click.stop>
+                <div class="modal-header">
+                    <h3>系统设置</h3>
+                    <button @click="closeModals" class="close-btn">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="settings-tabs">
+                    <button @click="settingsTab = 'server'" 
+                            :class="{ active: settingsTab === 'server' }">
+                        <i class="fas fa-server"></i>
+                        服务器设置
+                    </button>
+                    <button @click="settingsTab = 'bot'" 
+                            :class="{ active: settingsTab === 'bot' }">
+                        <i class="fas fa-robot"></i>
+                        机器人设置
+                    </button>
+                    <button @click="settingsTab = 'scheduler'" 
+                            :class="{ active: settingsTab === 'scheduler' }">
+                        <i class="fas fa-clock"></i>
+                        调度器设置
+                    </button>
+                    <button @click="settingsTab = 'process'" 
+                            :class="{ active: settingsTab === 'process' }">
+                        <i class="fas fa-cogs"></i>
+                        进程管理
+                    </button>
+                    <button @click="settingsTab = 'system'" 
+                            :class="{ active: settingsTab === 'system' }">
+                        <i class="fas fa-info-circle"></i>
+                        系统信息
+                    </button>
+                </div>
+                <form @submit.prevent="saveSettings" class="settings-form">
+                    <!-- 服务器设置 -->
+                    <div v-if="settingsTab === 'server'" class="settings-section">
+                        <h4>服务器配置</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>监听主机</label>
+                                <input type="text" v-model="settings.server.host" placeholder="0.0.0.0">
+                                <small>服务器监听的网络接口</small>
+                            </div>
+                            <div class="form-group">
+                                <label>监听端口</label>
+                                <input type="number" v-model="settings.server.port" min="1024" max="65535">
+                                <small>Web服务监听端口</small>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>API密钥</label>
+                            <input type="text" v-model="settings.server.apiKey" placeholder="用于访问管理接口的密钥">
+                            <small>用于访问管理接口的安全密钥</small>
+                        </div>
+                        <div class="form-group">
+                            <label>机器人根目录</label>
+                            <input type="text" v-model="settings.botRootDir" placeholder="./onebot">
+                            <small>存储机器人配置和数据的目录</small>
+                        </div>
+                        <div class="form-group">
+                            <label>日志目录</label>
+                            <input type="text" v-model="settings.logDir" placeholder="./logs">
+                            <small>存储日志文件的目录</small>
+                        </div>
+                        <div class="form-group">
+                            <label>可执行文件路径</label>
+                            <input type="text" v-model="settings.executablePath" placeholder="./Lagrange.OneBot.exe">
+                            <small>OneBot程序的可执行文件路径</small>
+                        </div>
+                    </div>
+
+                    <!-- 机器人设置 -->
+                    <div v-if="settingsTab === 'bot'" class="settings-section">
+                        <h4>机器人管理配置</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>状态检查间隔 (毫秒)</label>
+                                <input type="number" v-model="settings.bot.checkInterval" min="1000" step="1000">
+                                <small>检查机器人进程状态的间隔时间</small>
+                            </div>
+                            <div class="form-group">
+                                <label>二维码检测间隔 (毫秒)</label>
+                                <input type="number" v-model="settings.bot.qrCodeCheckInterval" min="1000" step="1000">
+                                <small>检测二维码文件的间隔时间</small>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>最大重启次数</label>
+                                <input type="number" v-model="settings.bot.maxRestartAttempts" min="1">
+                                <small>单个机器人最大自动重启次数</small>
+                            </div>
+                            <div class="form-group">
+                                <label>重启冷却时间 (毫秒)</label>
+                                <input type="number" v-model="settings.bot.restartCooldown" min="1000" step="1000">
+                                <small>重启失败后的等待时间</small>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>重启计数重置时间 (毫秒)</label>
+                                <input type="number" v-model="settings.bot.restartCountResetTime" min="60000" step="60000">
+                                <small>重启计数重置的时间间隔</small>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>共享可执行文件</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="settings.bot.sharedExecutable">
+                                <span class="slider"></span>
+                            </label>
+                            <small>多个机器人是否共享同一个可执行文件</small>
+                        </div>
+                        <div class="form-group">
+                            <label>停止时强制终止</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="settings.bot.killOnStop">
+                                <span class="slider"></span>
+                            </label>
+                            <small>停止机器人时是否强制终止进程</small>
+                        </div>
+                    </div>
+
+                    <!-- 转发设置 - 简化配置 -->
+                    <div v-if="settingsTab === 'forward'" class="settings-section">
+                        <h4>正向端口转发配置</h4>
+                        <div class="form-group">
+                            <label>启用正向端口转发</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="settings.forwardProxy.enable">
+                                <span class="slider"></span>
+                            </label>
+                            <small>启用后，管理器将自动转发所有机器人的正向端口</small>
+                        </div>
+                        <div v-if="settings.forwardProxy.enable">
+                            <div class="form-group">
+                                <label>自动转发所有正向端口</label>
+                                <label class="switch">
+                                    <input type="checkbox" v-model="settings.forwardProxy.autoForwardAllPorts">
+                                    <span class="slider"></span>
+                                </label>
+                                <small>自动为所有运行中的机器人创建端口转发</small>
+                            </div>
+                        </div>
+                        <div class="info-box">
+                            <h5>转发说明:</h5>
+                            <ul>
+                                <li>正向端口转发将自动创建: <code>{{ connectionAddresses.wsManager }}/botId/ws</code></li>
+                                <li>HTTP API转发: <code>{{ connectionAddresses.httpAPI }}/botId/</code></li>
+                                <li>统一入口: <code>{{ connectionAddresses.allConnections }}</code></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- 调度器设置 -->
+                    <div v-if="settingsTab === 'scheduler'" class="settings-section">
+                        <h4>自动调度配置</h4>
+                        <div class="form-group">
+                            <label>启用全体定时重启</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="settings.scheduler.autoRestartAll">
+                                <span class="slider"></span>
+                            </label>
+                            <small>定时重启所有运行中的机器人</small>
+                        </div>
+                        <div class="form-group" v-if="settings.scheduler.autoRestartAll">
+                            <label>重启时间</label>
+                            <input type="time" v-model="settings.scheduler.autoRestartTime">
+                            <small>每日自动重启的时间</small>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>调度器检查间隔 (毫秒)</label>
+                                <input type="number" v-model="settings.scheduler.checkInterval" min="1000" step="1000">
+                                <small>调度器状态检查间隔</small>
+                            </div>
+                            <div class="form-group">
+                                <label>最大重启尝试</label>
+                                <input type="number" v-model="settings.scheduler.maxRestartAttempts" min="1">
+                                <small>调度器最大重启尝试次数</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 进程管理设置 -->
+                    <div v-if="settingsTab === 'process'" class="settings-section">
+                        <h4>进程管理配置</h4>
+                        <div class="form-group">
+                            <label>跟踪进程ID</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="settings.processManagement.trackPids">
+                                <span class="slider"></span>
+                            </label>
+                            <small>是否跟踪和记录进程ID</small>
+                        </div>
+                        <div class="form-group">
+                            <label>记录输出日志</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="settings.processManagement.logOutput">
+                                <span class="slider"></span>
+                            </label>
+                            <small>是否记录进程的标准输出和错误输出</small>
+                        </div>
+                        <div class="form-group">
+                            <label>使用Kill命令</label>
+                            <label class="switch">
+                                <input type="checkbox" v-model="settings.processManagement.useKillCommand">
+                                <span class="slider"></span>
+                            </label>
+                            <small>停止进程时是否使用系统kill命令</small>
+                        </div>
+                    </div>
+
+                    <!-- 系统信息 -->
+                    <div v-if="settingsTab === 'system'" class="settings-section">
+                        <h4>系统信息</h4>
+                        <div class="system-info" v-if="systemInfo">
+                            <div class="info-item">
+                                <label>操作系统:</label>
+                                <span>{{ systemInfo.platform }}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Node.js版本:</label>
+                                <span>{{ systemInfo.nodeVersion }}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>运行时间:</label>
+                                <span>{{ formatUptime(systemInfo.uptime) }}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>内存使用:</label>
+                                <span>{{ formatMemory(systemInfo.memoryUsage) }}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>可执行文件:</label>
+                                <span>{{ systemInfo.executablePath }}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>机器人目录:</label>
+                                <span>{{ systemInfo.botRootDir }}</span>
+                            </div>
+                            <div class="info-item">
+                                <label>日志目录:</label>
+                                <span>{{ systemInfo.logDir }}</span>
+                            </div>
+                        </div>
+                        <div class="system-actions">
+                            <button type="button" @click="refreshSystemInfo" class="action-btn">
+                                <i class="fas fa-sync"></i>
+                                刷新信息
+                            </button>
+                            <button type="button" @click="clearSystemLogs" class="action-btn">
+                                <i class="fas fa-trash"></i>
+                                清理日志
+                            </button>
+                            <button type="button" @click="restartServer" class="action-btn warning">
+                                <i class="fas fa-power-off"></i>
+                                关闭服务器
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" @click="closeModals" class="cancel-btn">取消</button>
+                        <button type="button" @click="resetSettings" class="action-btn">
+                            <i class="fas fa-undo"></i>
+                            重置设置
+                        </button>
+                        <button type="submit" class="confirm-btn">保存设置</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 优化的连接信息模态框 -->
+        <div v-if="showConnectionModal" class="modal-overlay" @click="closeModals">
+            <div class="modal large" @click.stop>
+                <div class="modal-header">
+                    <h3>连接信息</h3>
+                    <button @click="closeModals" class="close-btn">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="connection-content">
+                    <!-- 管理器连接信息 -->
+                    <div class="info-group">
+                        <h4><i class="fas fa-server"></i> 管理器服务</h4>
+                        <div class="connection-grid">
+                            <div class="connection-item">
+                                <label>Web管理界面:</label>
+                                <div class="connection-value">
+                                    <span>{{ connectionAddresses.webUI }}</span>
+                                    <button @click="copyToClipboard(connectionAddresses.webUI)" class="copy-btn">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="connection-item">
+                                <label>WebSocket管理:</label>
+                                <div class="connection-value">
+                                    <span>{{ connectionAddresses.wsManager }}</span>
+                                    <button @click="copyToClipboard(connectionAddresses.wsManager)" class="copy-btn">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="connection-item">
+                                <label>HTTP API:</label>
+                                <div class="connection-value">
+                                    <span>{{ connectionAddresses.httpAPI }}</span>
+                                    <button @click="copyToClipboard(connectionAddresses.httpAPI)" class="copy-btn">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="connection-item">
+                                <label>统一连接入口:</label>
+                                <div class="connection-value">
+                                    <span>{{ connectionAddresses.allConnections }}</span>
+                                    <button @click="copyToClipboard(connectionAddresses.allConnections)" class="copy-btn">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 机器人连接信息 -->
+                    <div class="info-group" v-if="botConnectionAddresses.length > 0">
+                        <h4><i class="fas fa-robot"></i> 机器人连接地址</h4>
+                        <div class="bot-connections">
+                            <div v-for="botConn in botConnectionAddresses" :key="botConn.botId" 
+                                 class="bot-connection-group">
+                                <div class="bot-connection-header">
+                                    <span class="bot-id">{{ botConn.botId }}</span>
+                                    <span class="bot-uin">UIN: {{ botConn.uin }}</span>
+                                    <span class="connection-status" 
+                                          :class="'status-' + getBotConnectionStatus(botConn.botId)">
+                                        {{ getConnectionStatusText(getBotConnectionStatus(botConn.botId)) }}
+                                    </span>
+                                </div>
+                                <div class="bot-connection-list">
+                                    <div v-for="conn in botConn.connections" :key="conn.type" 
+                                         class="connection-item">
+                                        <label>
+                                            <i :class="getConnectionTypeIcon(conn.type)"></i>
+                                            {{ getConnectionTypeText(conn.type) }}:
+                                        </label>
+                                        <div class="connection-value">
+                                            <span>{{ conn.address }}</span>
+                                            <button @click="copyToClipboard(conn.address)" class="copy-btn">
+                                                <i class="fas fa-copy"></i>
+                                            </button>
+                                        </div>
+                                        <small>{{ conn.description }}</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 连接说明 -->
+                    <div class="info-group">
+                        <h4><i class="fas fa-info-circle"></i> 连接说明</h4>
+                        <div class="connection-help">
+                            <div class="help-item">
+                                <strong>正向WebSocket:</strong> 机器人监听端口，外部服务主动连接
+                            </div>
+                            <div class="help-item">
+                                <strong>反向WebSocket:</strong> 机器人主动连接到外部服务
+                            </div>
+                            <div class="help-item">
+                                <strong>HTTP接口:</strong> 提供RESTful API服务
+                            </div>
+                            <div class="help-item">
+                                <strong>统一入口:</strong> 通过管理器转发访问所有机器人
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 二维码模态框 - 限制关闭条件 -->
+        <div v-if="showQrModal" class="modal-overlay qr-modal-overlay">
+            <div class="modal qr-login-modal" @click.stop>
+                <div class="modal-header">
+                    <h3>
+                        <i class="fas fa-qrcode"></i>
+                        扫码登录 - {{ currentQrBot?.id }}
+                    </h3>
+                    <!-- 只有在线状态才显示关闭按钮 -->
+                    <div class="qr-header-actions">
+                        <span class="bot-status" :class="'status-' + (bots.find(b => b.id === currentQrBot?.id)?.loginStatus || 'offline')">
+                            {{ getLoginStatusText(bots.find(b => b.id === currentQrBot?.id)?.loginStatus || 'offline') }}
+                        </span>
+                        <button v-if="bots.find(b => b.id === currentQrBot?.id)?.loginStatus === 'online'" 
+                                @click="closeQrModal" 
+                                class="close-btn">
+                            <i class="fas fa-check"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="qr-modal-content">
+                    <div class="qr-image-container">
+                        <img v-if="currentQrBot?.qrUrl" 
+                             :src="currentQrBot.qrUrl" 
+                             alt="登录二维码" 
+                             class="qr-modal-image">
+                        <div v-else class="qr-placeholder">
+                            <i class="fas fa-qrcode"></i>
+                            <p>正在生成二维码...</p>
+                        </div>
+                    </div>
+                    
+                    <div class="qr-instructions">
+                        <h4><i class="fas fa-mobile-alt"></i> 扫码登录说明</h4>
+                        <ul>
+                            <li>请使用 <strong>QQ/TIM</strong> 扫码登录</li>
+                            <li>勾选 <strong>下次登录无需确认</strong></li>
+                            <li>请勿使用 <strong>截图相册</strong> 扫码</li>
+                            <li v-if="currentQrBot?.isOffline" class="offline-notice">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                机器人当前离线，需要先启动机器人
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <div class="qr-actions">
+                        <button @click="refreshQrCode" class="action-btn refresh-btn">
+                            <i class="fas fa-sync"></i>
+                            刷新二维码
+                        </button>
+                        <button @click="regenerateQrCode" class="action-btn regenerate-btn">
+                            <i class="fas fa-redo"></i>
+                            重新生成
+                        </button>
+                    </div>
+                    
+                    <div class="qr-info">
+                        <small>
+                            <i class="fas fa-info-circle"></i>
+                            扫码成功后界面将显示关闭按钮并清理二维码文件
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 消息提示 -->
+        <div v-if="message" class="message" :class="message.type">
+            <i :class="getMessageIcon(message.type)"></i>
+            {{ message.text }}
+        </div>
+
+        <!-- 加载遮罩 -->
+        <div v-if="loading" class="loading-overlay">
+            <div class="loading-spinner">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>{{ loadingText || '处理中...' }}</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
