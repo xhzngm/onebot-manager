@@ -6,6 +6,23 @@ const AdmZip = require('adm-zip');
 const cliProgress = require('cli-progress');
 const { program } = require('commander');
 const readline = require('readline');
+const { execSync } = require('child_process');
+
+// Try to load tar module
+let tar = null;
+try {
+  tar = require('tar');
+} catch (error) {
+  console.log('⚠️  tar module not found. Installing it now...');
+  try {
+    execSync('npm install tar', { stdio: 'inherit' });
+    tar = require('tar');
+    console.log('✅ tar module installed successfully');
+  } catch (installError) {
+    console.error('❌ Failed to install tar module:', installError.message);
+    console.error('Please run: npm install tar');
+  }
+}
 
 const MB = 1024 ** 2;
 
@@ -456,61 +473,157 @@ function selectReleaseForSystem(assets) {
   throw new Error('没有找到任何可下载的文件');
 }
 
-// 智能解压函数 - 避免深层嵌套路径
-function extractZipSmart(zipPath, targetDir) {
-  const zip = new AdmZip(zipPath);
-  const entries = zip.getEntries();
-  
-  // 查找可执行文件
+// 验证下载的文件
+function validateDownloadedFile(filePath, expectedFormat) {
+  try {
+    const fileSize = fs.statSync(filePath).size;
+    console.log(`下载的文件大小: ${formatBytes(fileSize)}`);
+    
+    // 检查文件大小
+    if (fileSize < 1000) {
+      console.error('文件太小，可能是错误页面');
+      // 尝试读取文件内容查看是否是HTML错误页面
+      const content = fs.readFileSync(filePath, 'utf8').substring(0, 500);
+      console.error('文件内容预览:', content);
+      return false;
+    }
+    
+    // 检查文件头
+    const buffer = Buffer.alloc(4);
+    const fd = fs.openSync(filePath, 'r');
+    fs.readSync(fd, buffer, 0, 4, 0);
+    fs.closeSync(fd);
+    
+    if (expectedFormat === 'zip') {
+      // ZIP文件的魔术数字: 50 4B 03 04 (PK..)
+      if (buffer[0] === 0x50 && buffer[1] === 0x4B && (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07) && (buffer[3] === 0x04 || buffer[3] === 0x06 || buffer[3] === 0x08)) {
+        console.log('文件验证通过：是有效的ZIP文件');
+        return true;
+      } else {
+        console.error(`文件头不匹配ZIP格式: ${buffer.toString('hex')}`);
+        return false;
+      }
+    } else if (expectedFormat === 'tar.gz') {
+      // GZIP文件的魔术数字: 1F 8B
+      if (buffer[0] === 0x1F && buffer[1] === 0x8B) {
+        console.log('文件验证通过：是有效的GZIP文件');
+        return true;
+      } else {
+        console.error(`文件头不匹配GZIP格式: ${buffer.toString('hex')}`);
+        return false;
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.error(`验证文件失败: ${error.message}`);
+    return false;
+  }
+}
+
+// 智能解压函数 - 支持ZIP和tar.gz
+async function extractArchiveSmart(archivePath, targetDir, fileFormat) {
   const platform = os.platform();
   const executableName = platform === 'win32' ? 'Lagrange.OneBot.exe' : 'Lagrange.OneBot';
   
-  let executableEntry = null;
-  let rootDir = null;
-  
-  // 寻找可执行文件和根目录
-  for (const entry of entries) {
-    if (entry.entryName.endsWith(executableName)) {
-      executableEntry = entry;
-      // 获取可执行文件所在的目录路径
-      const pathParts = entry.entryName.split('/');
-      if (pathParts.length > 1) {
-        rootDir = pathParts.slice(0, -1).join('/') + '/';
-      }
-      break;
-    }
-  }
-  
-  if (!executableEntry) {
-    throw new Error(`未找到可执行文件 ${executableName}`);
-  }
-  
-  console.log(`找到可执行文件: ${executableEntry.entryName}`);
-  
-  // 提取所有相关文件到目标目录，但去掉深层嵌套路径
-  for (const entry of entries) {
-    if (rootDir && entry.entryName.startsWith(rootDir)) {
-      // 计算相对路径（去掉根目录前缀）
-      const relativePath = entry.entryName.substring(rootDir.length);
-      
-      if (relativePath && !entry.isDirectory) {
-        const targetPath = path.join(targetDir, relativePath);
-        const targetDirPath = path.dirname(targetPath);
-        
-        // 确保目标目录存在
-        if (!fs.existsSync(targetDirPath)) {
-          fs.mkdirSync(targetDirPath, { recursive: true });
+  if (fileFormat === 'zip') {
+    // 使用 AdmZip 处理 ZIP 文件
+    const zip = new AdmZip(archivePath);
+    const entries = zip.getEntries();
+    
+    let executableEntry = null;
+    let rootDir = null;
+    
+    // 寻找可执行文件和根目录
+    for (const entry of entries) {
+      if (entry.entryName.endsWith(executableName)) {
+        executableEntry = entry;
+        // 获取可执行文件所在的目录路径
+        const pathParts = entry.entryName.split('/');
+        if (pathParts.length > 1) {
+          rootDir = pathParts.slice(0, -1).join('/') + '/';
         }
-        
-        // 提取文件
-        fs.writeFileSync(targetPath, entry.getData());
-        
-        // 设置可执行权限（Linux/macOS）
-        if (platform !== 'win32' && relativePath === executableName) {
-          fs.chmodSync(targetPath, '755');
-        }
+        break;
       }
     }
+    
+    if (!executableEntry) {
+      throw new Error(`未找到可执行文件 ${executableName}`);
+    }
+    
+    console.log(`找到可执行文件: ${executableEntry.entryName}`);
+    
+    // 提取所有相关文件到目标目录，但去掉深层嵌套路径
+    for (const entry of entries) {
+      if (rootDir && entry.entryName.startsWith(rootDir)) {
+        // 计算相对路径（去掉根目录前缀）
+        const relativePath = entry.entryName.substring(rootDir.length);
+        
+        if (relativePath && !entry.isDirectory) {
+          const targetPath = path.join(targetDir, relativePath);
+          const targetDirPath = path.dirname(targetPath);
+          
+          // 确保目标目录存在
+          if (!fs.existsSync(targetDirPath)) {
+            fs.mkdirSync(targetDirPath, { recursive: true });
+          }
+          
+          // 提取文件
+          fs.writeFileSync(targetPath, entry.getData());
+          
+          // 设置可执行权限（Linux/macOS）
+          if (platform !== 'win32' && relativePath === executableName) {
+            fs.chmodSync(targetPath, '755');
+          }
+        }
+      }
+    }
+  } else if (fileFormat === 'tar.gz') {
+    // 使用 tar 模块处理 tar.gz 文件
+    if (!tar) {
+      throw new Error('tar 模块未安装，无法解压 tar.gz 文件');
+    }
+    
+    console.log('正在解压 tar.gz 文件...');
+    
+    // 先列出所有文件，找到根目录
+    const fileList = [];
+    await tar.t({
+      file: archivePath,
+      onentry: entry => fileList.push(entry.path)
+    });
+    
+    // 找到可执行文件和根目录
+    let rootDir = null;
+    for (const filePath of fileList) {
+      if (filePath.endsWith(executableName)) {
+        const pathParts = filePath.split('/');
+        if (pathParts.length > 1) {
+          rootDir = pathParts.slice(0, -1).join('/');
+        }
+        console.log(`找到可执行文件: ${filePath}`);
+        break;
+      }
+    }
+    
+    // 解压文件，去掉根目录前缀
+    await tar.x({
+      file: archivePath,
+      cwd: targetDir,
+      strip: rootDir ? rootDir.split('/').length : 0,
+      preserveOwner: false
+    });
+    
+    // 设置可执行权限
+    if (platform !== 'win32') {
+      const executablePath = path.join(targetDir, executableName);
+      if (fs.existsSync(executablePath)) {
+        fs.chmodSync(executablePath, '755');
+        console.log('已设置执行权限');
+      }
+    }
+  } else {
+    throw new Error(`不支持的文件格式: ${fileFormat}`);
   }
   
   console.log(`已智能解压到: ${targetDir}`);
@@ -556,7 +669,17 @@ async function downloadLagrange(silentInstallation = false, targetDir = workPath
     const fileName = selectedAsset.name;
     const fileSize = selectedAsset.size;
     
+    // 判断文件格式
+    const fileFormat = fileName.endsWith('.zip') ? 'zip' : 
+                      fileName.endsWith('.tar.gz') ? 'tar.gz' : 
+                      'unknown';
+    
+    if (fileFormat === 'unknown') {
+      throw new Error(`不支持的文件格式: ${fileName}`);
+    }
+    
     console.log(`\n选择下载: ${fileName} (${formatBytes(fileSize)})`);
+    console.log(`文件格式: ${fileFormat}`);
     
     // 获取下载代理
     const downloadProxy = await getWorkingProxyForDownload();
@@ -586,7 +709,7 @@ async function downloadLagrange(silentInstallation = false, targetDir = workPath
       console.log('使用直连下载');
     }
     
-    const zipPath = path.join(workPath, fileName);
+    const archivePath = path.join(workPath, fileName);
     
     console.log('\n开始下载...');
     
@@ -594,7 +717,13 @@ async function downloadLagrange(silentInstallation = false, targetDir = workPath
     let success = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        await downloadWithProgress(downloadUrl, zipPath, 3, silentInstallation);
+        await downloadWithProgress(downloadUrl, archivePath, 3, silentInstallation);
+        
+        // 验证下载的文件
+        if (!validateDownloadedFile(archivePath, fileFormat)) {
+          throw new Error('下载的文件无效或损坏');
+        }
+        
         success = true;
         break;
       } catch (error) {
@@ -603,8 +732,8 @@ async function downloadLagrange(silentInstallation = false, targetDir = workPath
           console.log('正在重新下载...');
           // 清理失败的文件
           try {
-            if (fs.existsSync(zipPath)) {
-              fs.unlinkSync(zipPath);
+            if (fs.existsSync(archivePath)) {
+              fs.unlinkSync(archivePath);
             }
           } catch (e) {}
         }
@@ -619,29 +748,18 @@ async function downloadLagrange(silentInstallation = false, targetDir = workPath
       console.log('\n正在智能解压文件...');
     }
     
-    // 智能解压文件 - 避免深层嵌套路径
+    // 智能解压文件
     try {
-      extractZipSmart(zipPath, targetDir);
+      await extractArchiveSmart(archivePath, targetDir, fileFormat);
       console.log('✅ 智能解压完成，已优化目录结构');
     } catch (error) {
-      console.log('智能解压失败，使用传统解压方式...');
-      // 降级到传统解压方式
-      const zip = new AdmZip(zipPath);
-      zip.extractAllTo(targetDir, true);
-      
-      // 在Linux/macOS上设置执行权限
-      if (os.platform() !== 'win32') {
-        const executablePath = path.join(targetDir, 'Lagrange.OneBot');
-        if (fs.existsSync(executablePath)) {
-          fs.chmodSync(executablePath, '755');
-          console.log('已设置执行权限');
-        }
-      }
+      console.error(`解压失败: ${error.message}`);
+      throw error;
     }
     
     // 清理下载的压缩包
     try {
-      fs.unlinkSync(zipPath);
+      fs.unlinkSync(archivePath);
     } catch (error) {
       console.log(`清理压缩包失败: ${error.message}`);
     }
@@ -666,6 +784,19 @@ async function downloadLagrange(silentInstallation = false, targetDir = workPath
     
   } catch (error) {
     console.error(`\n❌ 下载失败: ${error.message}`);
+    
+    // 提供手动下载的提示
+    if (error.message.includes('ZIP') || error.message.includes('tar.gz') || error.message.includes('无效')) {
+      console.log('\n自动下载失败，可能的原因：');
+      console.log('1. 代理服务器返回了错误页面');
+      console.log('2. 网络连接不稳定');
+      console.log('3. GitHub 服务暂时不可用');
+      console.log('\n您可以：');
+      console.log('1. 手动下载文件：https://github.com/LagrangeDev/Lagrange.Core/releases');
+      console.log('2. 将下载的文件解压到当前目录');
+      console.log('3. 在配置中指定可执行文件路径');
+    }
+    
     throw error;
   }
 }
@@ -754,7 +885,7 @@ async function main() {
     
     if (!silentInstallation) {
       console.log('\n🎉 安装完成! 可以开始使用 Lagrange.OneBot 了');
-      console.log('📋 配置文件中可以使用相对路径: "./Lagrange.OneBot.exe"');
+      console.log('📋 配置文件中可以使用相对路径: "./Lagrange.OneBot.exe" 或 "./Lagrange.OneBot"');
     }
     
   } catch (error) {
