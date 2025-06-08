@@ -106,12 +106,12 @@ docker pull maimai977/onebot-manager
 # 运行容器
 docker run -d \
   --name onebot-manager \
-  --network host \          # 使用宿主机网络，自动开放所有端口
-  -v $(pwd):/app/host \
-  -v ./data:/app/onebot \
+  --network host \
+  -v ./onebot:/app/onebot \
   -v ./logs:/app/logs \
-  maimai977/onebot-manager:latest
-
+  -v ./config.json:/app/config.json \
+  -v /bot-manager-config.json:/app/bot-manager-config.json \
+  maimai977/onebot-manager
 ```
 
 ## 📚 目录结构
