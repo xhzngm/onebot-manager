@@ -103,12 +103,15 @@ noed .
 # 拉取镜像
 docker pull maimai977/onebot-manager
 
-# 运行容器
+# 第一次运行
 docker run -it --rm \
   --name onebot-manager \
   -v $(pwd):/app \
   maimai977/onebot-manager \
   /bin/bash
+# 创建配置文件
+ node .
+
 # 后续启动
 docker run -d \
   --name onebot-manager \
