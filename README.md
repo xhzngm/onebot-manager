@@ -110,7 +110,7 @@ ddocker run -d \
   --network host \                    # 使用宿主机网络，自动开放所有端口
   -v ./data:/app/onebot \
   -v ./logs:/app/logs \
-  maimai977/onebot-manager:latest
+  maimai977/onebot-manager
 
 ```
 
