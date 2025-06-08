@@ -279,7 +279,7 @@ npm run lint
 
 - **Issues**: [GitHub Issues](https://github.com/xhzngm/onebot-manager/issues)
 - **讨论**: [GitHub Discussions](https://github.com/xhzngm/onebot-manager/discussions)
-- **QQ群**: 123456789
+- **QQ群**: [1030501081](https://qm.qq.com/q/leCEnTswTY)
 
 ## 🎉 致谢
 
