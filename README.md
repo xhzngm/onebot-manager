@@ -202,37 +202,6 @@ npm run lint
 - `POST /api/bots/:id/start` - 启动机器人
 - `POST /api/bots/:id/stop` - 停止机器人
 
-## 🐳 部署方案
-
-### 传统部署
-
-1. **直接运行**
-   ```bash
-   npm start
-   ```
-
-2. **使用 PM2**
-   ```bash
-   npm install -g pm2
-   pm2 start server.js --name onebot-manager
-   ```
-
-3. **系统服务**
-   ```bash
-   # 创建 systemd 服务
-   sudo systemctl enable onebot-manager
-   sudo systemctl start onebot-manager
-   ```
-
-### 容器化部署
-
-支持多种容器化部署方案：
-- Docker
-- Docker Compose
-- Kubernetes
-
-详细部署指南请参考 [DEPLOYMENT.md](./docs/DEPLOYMENT.md)
-
 ## 🔧 故障排除
 
 ### 常见问题
@@ -279,7 +248,6 @@ npm run lint
 ## 📞 支持与反馈
 
 - **Issues**: [GitHub Issues](https://github.com/xhzngm/onebot-manager/issues)
-- **讨论**: [GitHub Discussions](https://github.com/xhzngm/onebot-manager/discussions)
 - **QQ群**: [1030501081](https://qm.qq.com/q/leCEnTswTY)
 
 ## 🎉 致谢
