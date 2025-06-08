@@ -104,6 +104,12 @@ noed .
 docker pull maimai977/onebot-manager
 
 # 运行容器
+docker run -it --rm \
+  --name onebot-manager \
+  -v $(pwd):/app \
+  maimai977/onebot-manager \
+  /bin/bash
+# 后续启动
 docker run -d \
   --name onebot-manager \
   --network host \
