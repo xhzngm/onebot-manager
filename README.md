@@ -87,7 +87,7 @@ yarn install
 
 #### 3. 首次运行
 
-由于上游代码[PR](https://github.com/LagrangeDev/Lagrange.Core/pull/863)修改未完成合并，导致无法正常启动前前往[QQ群](https://qm.qq.com/q/leCEnTswTY)  下载编译好的Lagrange.OneBot主程序
+由于上游代码[PR](https://github.com/LagrangeDev/Lagrange.Core/pull/863)修改未完成合并，导致无法正常启动请前往[QQ群](https://qm.qq.com/q/leCEnTswTY)  下载编译好的Lagrange.OneBot主程序
 
 ```bash
 noed .
