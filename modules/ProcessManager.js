@@ -416,17 +416,54 @@ class ProcessManager extends EventEmitter {
             this.addLogEntry(botId, `可执行文件: ${executablePath}`, 'info');
             this.addLogEntry(botId, `配置文件: ${configPath}`, 'info');
 
-            const fullExePath = path.isAbsolute(executablePath) ? executablePath : path.resolve(process.cwd(), executablePath);
+            // 处理 Docker 环境和相对路径
+            let fullExePath;
+            if (path.isAbsolute(executablePath)) {
+                fullExePath = executablePath;
+            } else {
+                // 在 Docker 环境中，如果是相对路径，应该相对于工作目录
+                fullExePath = path.resolve(process.cwd(), executablePath);
+            }
+            
             const fullConfigPath = path.isAbsolute(configPath) ? configPath : path.resolve(process.cwd(), configPath);
             const botWorkingDir = this.getBotWorkingDir(botId);
             
-            this.addLogEntry(botId, `工作目录: ${botWorkingDir}`, 'info');
+            this.addLogEntry(botId, `当前工作目录: ${process.cwd()}`, 'info');
+            this.addLogEntry(botId, `机器人工作目录: ${botWorkingDir}`, 'info');
+            this.addLogEntry(botId, `解析后的可执行文件路径: ${fullExePath}`, 'info');
 
             await fs.ensureDir(botWorkingDir);
 
-            if (!await fs.pathExists(fullExePath)) {
+            // 检查多个可能的路径
+            const possiblePaths = [
+                fullExePath,
+                path.join(process.cwd(), 'Lagrange.OneBot'),
+                path.join(botWorkingDir, 'Lagrange.OneBot'),
+                './Lagrange.OneBot'
+            ];
+
+            let validExePath = null;
+            for (const testPath of possiblePaths) {
+                this.addLogEntry(botId, `检查路径: ${testPath}`, 'debug');
+                if (await fs.pathExists(testPath)) {
+                    validExePath = testPath;
+                    this.addLogEntry(botId, `找到可执行文件: ${testPath}`, 'success');
+                    break;
+                }
+            }
+
+            if (!validExePath) {
+                // 列出当前目录文件帮助调试
+                try {
+                    const files = await fs.readdir(process.cwd());
+                    this.addLogEntry(botId, `当前目录文件: ${files.join(', ')}`, 'debug');
+                } catch (e) {
+                    this.addLogEntry(botId, `无法列出目录文件: ${e.message}`, 'error');
+                }
                 throw new Error(`可执行文件不存在: ${fullExePath}`);
             }
+            
+            fullExePath = validExePath;
             if (!await fs.pathExists(fullConfigPath)) {
                 throw new Error(`配置文件不存在: ${fullConfigPath}`);
             }
