@@ -472,12 +472,39 @@ class ProcessManager extends EventEmitter {
 
             this.addLogEntry(botId, '启动子进程...', 'info');
             
-            const childProcess = spawn(fullExePath, {
-                detached: false,
-                stdio: ['ignore', 'pipe', 'pipe'], // 捕获stdout和stderr
-                cwd: botWorkingDir,
-                windowsHide: true
-            });
+            // 在非 Windows 环境下（Docker/Linux），需要特殊处理
+            let childProcess;
+            if (this.isWindows) {
+                childProcess = spawn(fullExePath, {
+                    detached: false,
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    cwd: botWorkingDir,
+                    windowsHide: true
+                });
+            } else {
+                // Linux/Docker 环境：使用 shell 来执行
+                this.addLogEntry(botId, '使用 shell 模式启动（Linux/Docker环境）', 'info');
+                
+                // 确保文件有执行权限
+                try {
+                    await fs.chmod(fullExePath, '755');
+                    this.addLogEntry(botId, '已设置执行权限', 'info');
+                } catch (e) {
+                    this.addLogEntry(botId, `设置执行权限失败: ${e.message}`, 'warning');
+                }
+                
+                // 使用 shell: true 选项
+                childProcess = spawn(fullExePath, [], {
+                    detached: false,
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    cwd: botWorkingDir,
+                    shell: true,
+                    env: {
+                        ...process.env,
+                        PATH: `${process.env.PATH}:${path.dirname(fullExePath)}`
+                    }
+                });
+            }
 
             if (!childProcess.pid) {
                 throw new Error('无法获取进程PID');
