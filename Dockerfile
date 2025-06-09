@@ -16,6 +16,7 @@ WORKDIR /onebot-manager
 RUN git clone --branch docker https://github.com/xhzngm/onebot-manager.git
 
 # 安装项目依赖
+RUN cd onebot-manager
 RUN npm install --production
 RUN wget -O onebot-manager.zip "https://github.com/xhzngm/onebot-manager/releases/download/publish/publish-net9-linux-x64.zip" && \
     unzip onebot-manager.zip -d /app && \
