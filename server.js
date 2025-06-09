@@ -40,7 +40,7 @@ class OneBotManagerServer {
             server: {
                 host: "0.0.0.0",
                 port: 12345,
-                apiKey: "onebot-manager-2024"
+                apiKey: "1"
             },
             executablePath: `./${executableName}`,
             botRootDir: "./onebot",
