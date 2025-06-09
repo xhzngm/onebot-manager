@@ -435,7 +435,7 @@ class ProcessManager extends EventEmitter {
 
             this.addLogEntry(botId, '启动子进程...', 'info');
             
-            const childProcess = spawn(fullExePath, ['--config', fullConfigPath], {
+            const childProcess = spawn(fullExePath, {
                 detached: false,
                 stdio: ['ignore', 'pipe', 'pipe'], // 捕获stdout和stderr
                 cwd: botWorkingDir,
