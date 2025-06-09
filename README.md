@@ -89,7 +89,7 @@ yarn install
 由于上游代码[PR](https://github.com/LagrangeDev/Lagrange.Core/pull/863)修改未完成合并，导致无法正常启动请前往[releases](https://github.com/xhzngm/onebot-manager/releases)下载编译好的Lagrange.OneBot主程序 publish.xxxx
 
 ```bash
-noed .
+node .
 ```
 
 #### 4. 访问管理界面
@@ -97,22 +97,11 @@ noed .
 
 首次启动会进入配置向导，按照提示完成初始配置。
 
-### Docker 部署
-
-```bash
-# 拉取镜像
-docker pull maimai977/onebot-manager
-
-# 启动镜像
-docker run -d \
-  --name onebot-manager \
-  --network host \
-  maimai977/onebot-manager
-```
 # 修改登录密码
 访问ip:12345
 默认密码为1
 登录成功后，点击设置，修改密码
+
 ## 📚 目录结构
 
 ```
