@@ -9,15 +9,21 @@ RUN apk add --no-cache \
     bash \
     git
 
-# 设置工作目录
-WORKDIR /onebot-manager
+# 设置临时工作目录
+WORKDIR /tmp
 
 # 克隆项目
 RUN git clone --branch docker https://github.com/xhzngm/onebot-manager.git
 
-# 安装项目依赖
-RUN cd onebot-manager && \
-    npm install --production && \
+# 设置最终工作目录
+WORKDIR /onebot-manager
+
+# 复制项目文件到工作目录
+RUN cp -r /tmp/onebot-manager/* /onebot-manager/ && \
+    rm -rf /tmp/onebot-manager
+
+# 安装项目依赖并下载 Lagrange
+RUN npm install --production && \
     wget -O Lagrange.zip "https://github.com/xhzngm/onebot-manager/releases/download/publish/publish-net9-linux-x64.zip" && \
     unzip Lagrange.zip && \
     rm Lagrange.zip && \
