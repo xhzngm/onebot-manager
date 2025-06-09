@@ -21,8 +21,8 @@ RUN cd onebot-manager && \
     wget -O Lagrange.zip "https://github.com/xhzngm/onebot-manager/releases/download/publish/publish-net9-linux-x64.zip" && \
     unzip Lagrange.zip && \
     rm Lagrange.zip && \
-    chmod +x /app/Lagrange.OneBot
-    
+    chmod +x Lagrange.OneBot
+
 # 暴露应用端口
 EXPOSE 12345
 
