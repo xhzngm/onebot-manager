@@ -16,11 +16,11 @@ WORKDIR /onebot-manager
 RUN git clone --branch docker https://github.com/xhzngm/onebot-manager.git
 
 # 安装项目依赖
-RUN cd onebot-manager
-RUN npm install --production
-RUN wget -O onebot-manager.zip "https://github.com/xhzngm/onebot-manager/releases/download/publish/publish-net9-linux-x64.zip" && \
-    unzip onebot-manager.zip -d /app && \
-    rm onebot-manager.zip && \
+RUN cd onebot-manager && \
+    npm install --production
+RUN wget -O Lagrange.zip "https://github.com/xhzngm/onebot-manager/releases/download/publish/publish-net9-linux-x64.zip" && \
+    unzip Lagrange.zip && \
+    rm Lagrange.zip && \
     chmod +x /app/Lagrange.OneBot
 # 暴露应用端口
 EXPOSE 12345
