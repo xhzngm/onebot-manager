@@ -1,0 +1,45 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 12345,
+    "apiKey": "1"
+  },
+  "executablePath": "./Lagrange.OneBot",
+  "botRootDir": "./onebot",
+  "logDir": "./logs",
+  "maxInstances": 3,
+  "firstStart": {
+    "configCompleted": false,
+    "executableConfigured": false
+  },
+  "bot": {
+    "checkInterval": 5000,
+    "qrCodeCheckInterval": 2000,
+    "maxRestartAttempts": 3,
+    "restartDelay": 5000,
+    "autoRestart": true,
+    "healthCheck": {
+      "enabled": true,
+      "interval": 30000,
+      "timeout": 10000
+    }
+  },
+  "autoDownload": {
+    "enable": true,
+    "source": "github",
+    "autoUpdate": false
+  },
+  "scheduler": {
+    "autoRestartAll": false,
+    "autoRestartTime": "03:00"
+  },
+  "advanced": {
+    "enableApiRateLimit": true,
+    "maxApiRequestsPerMinute": 100,
+    "enableWebSocketRateLimit": true,
+    "maxWebSocketEventsPerSecond": 50,
+    "logLevel": "info",
+    "maxLogFileSize": "10MB",
+    "maxLogFiles": 5
+  }
+}
