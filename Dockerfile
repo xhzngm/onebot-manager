@@ -13,13 +13,11 @@ RUN apk add --no-cache \
 WORKDIR /onebot-manager
 
 # 克隆项目
-RUN apt-get update && apt-get install -y git && \
-    git clone --branch docker https://github.com/xhzngm/onebot-manager.git
+RUN git clone --branch docker https://github.com/xhzngm/onebot-manager.git
 
 # 安装项目依赖
 RUN npm install --production
-RUN apt-get update && apt-get install -y wget unzip && \
-    wget -O onebot-manager.zip "https://github.com/xhzngm/onebot-manager/releases/download/publish/publish-net9-linux-x64.zip" && \
+RUN wget -O onebot-manager.zip "https://github.com/xhzngm/onebot-manager/releases/download/publish/publish-net9-linux-x64.zip" && \
     unzip onebot-manager.zip -d /app && \
     rm onebot-manager.zip && \
     chmod +x /app/Lagrange.OneBot
