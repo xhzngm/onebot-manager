@@ -270,7 +270,7 @@ class ProcessManager extends EventEmitter {
             return;
         }
 
-        this.addLogEntry(botId, `启动状态检查器，检测端口 ${processInfo.apiEndpoint.port}`, 'info');
+        this.addLogEntry(botId, `启动状态检查器，60秒后开始检测端口 ${processInfo.apiEndpoint.port}`, 'info');
 
         let checkInterval = 3000; // 默认3秒检查一次
         let consecutiveFailures = 0;
@@ -305,15 +305,15 @@ class ProcessManager extends EventEmitter {
                 } else {
                     consecutiveFailures++;
                     
-                    // 扫码期间持续检测，不轻易重启
+                    // 扫码期间持续检测，不轻易判定失败
                     const maxFailures = timeSinceStart < 300000 ? 10 : 3; // 启动5分钟内允许更多失败次数
                     
                     if (consecutiveFailures >= maxFailures) {
                         if (processInfo.status === 'running' || processInfo.status === 'starting') {
                             processInfo.status = 'stopped';
-                            processInfo.pid = null;
                             this.addLogEntry(botId, `端口无响应 (连续${consecutiveFailures}次): ${statusResult.message}`, 'error');
                             this.stopStatusChecker(botId);
+                            // 不自动重启，只记录状态
                         }
                     } else {
                         this.addLogEntry(botId, `端口检测失败 (${consecutiveFailures}/${maxFailures}): ${statusResult.message}`, 'warning');
@@ -322,8 +322,8 @@ class ProcessManager extends EventEmitter {
             }
         };
 
-        // 首次检查延迟5秒
-        setTimeout(performCheck, 5000);
+        // 首次检查延迟60秒
+        setTimeout(performCheck, 60000);
         const checker = setInterval(performCheck, checkInterval);
         this.statusCheckers.set(botId, checker);
     }
@@ -354,9 +354,9 @@ class ProcessManager extends EventEmitter {
                     
                     if (consecutiveFailures >= 3) {
                         processInfo.status = 'stopped';
-                        processInfo.pid = null;
                         this.addLogEntry(botId, `机器人离线 (连续${consecutiveFailures}次检测失败): ${statusResult.message}`, 'error');
                         this.stopStatusChecker(botId);
+                        // 不自动重启，只记录状态
                     } else {
                         this.addLogEntry(botId, `状态检测失败 (${consecutiveFailures}/3): ${statusResult.message}`, 'warning');
                     }
@@ -563,42 +563,30 @@ class ProcessManager extends EventEmitter {
         return await this.stopSpecificBot(botId);
     }
 
-    // 终止进程
+    // 终止进程 - 移除检测，直接终止
     async killProcessByPid(pid) {
         if (!pid) return;
 
         try {
             if (this.isWindows) {
-                const isRunning = await this.checkProcessRunning(pid);
-                if (!isRunning) {
-                    console.log(`进程 PID ${pid} 已经不存在`);
-                    return;
-                }
-                
+                // 直接尝试终止进程，不再检测是否存在
                 try {
                     await this.executeCommand(`taskkill /F /T /PID ${pid}`);
-                    console.log(`进程树终止成功 PID: ${pid}`);
+                    console.log(`尝试终止进程树 PID: ${pid}`);
                     await this.sleep(2000);
-                    
-                    const isStillRunning = await this.checkProcessRunning(pid);
-                    if (!isStillRunning) {
-                        console.log(`确认进程 PID ${pid} 已成功终止`);
-                    } else {
-                        console.warn(`进程 PID ${pid} 可能仍在运行`);
-                        try {
-                            await this.executeCommand(`wmic process where processid=${pid} delete`);
-                            console.log(`WMIC强制终止进程 PID: ${pid}`);
-                            await this.sleep(2000);
-                        } catch (wmicError) {
-                            console.log(`WMIC方法失败: ${wmicError.message}`);
-                        }
-                    }
                 } catch (error) {
                     console.log(`进程树终止失败: ${error.message}`);
+                    // 尝试使用 WMIC 作为备选方案
+                    try {
+                        await this.executeCommand(`wmic process where processid=${pid} delete`);
+                        console.log(`尝试使用WMIC终止进程 PID: ${pid}`);
+                    } catch (wmicError) {
+                        console.log(`WMIC方法失败: ${wmicError.message}`);
+                    }
                 }
             } else {
                 await this.executeCommand(`kill -9 ${pid}`);
-                console.log(`终止进程 PID: ${pid}`);
+                console.log(`尝试终止进程 PID: ${pid}`);
                 await this.sleep(1000);
             }
         } catch (error) {
@@ -619,7 +607,7 @@ class ProcessManager extends EventEmitter {
         }
     }
 
-    // 获取进程状态 - 改进状态获取
+    // 获取进程状态 - 移除进程检测，只依赖端口
     async getProcessStatus(botId) {
         const processInfo = this.processes.get(botId);
         
@@ -638,22 +626,11 @@ class ProcessManager extends EventEmitter {
                 processInfo.status = 'running';
                 processInfo.lastStatusCheck = Date.now();
             } else {
-                const isRunning = await this.checkProcessRunning(pid);
-                if (!isRunning) {
-                    this.processes.delete(botId);
-                    await this.savePidToFile();
-                    this.stopStatusChecker(botId);
-                    return { status: 'stopped', pid: null, isOnline: false };
-                } else {
+                // 端口不通，但不判断进程是否存在
+                // 保持现有状态，可能是 starting 或其他
+                if (processInfo.status === 'running') {
                     processInfo.status = 'starting';
                 }
-            }
-        } else {
-            const isRunning = await this.checkProcessRunning(pid);
-            if (!isRunning) {
-                this.processes.delete(botId);
-                await this.savePidToFile();
-                return { status: 'stopped', pid: null, isOnline: false };
             }
         }
 
@@ -669,44 +646,10 @@ class ProcessManager extends EventEmitter {
         };
     }
 
-    // 检查进程是否运行
-    async checkProcessRunning(pid) {
-        if (!pid) return false;
-        
-        try {
-            if (this.isWindows) {
-                const output = await this.executeCommand(`tasklist /FI "PID eq ${pid}" /FO CSV`);
-                return output.includes(pid.toString());
-            } else {
-                const output = await this.executeCommand(`ps -p ${pid}`);
-                return output.includes(pid.toString());
-            }
-        } catch (error) {
-            return false;
-        }
-    }
-
-    // 清理死进程
+    // 清理死进程 - 移除此功能，因为不再检测进程状态
     async cleanupDeadProcesses() {
-        let cleanedCount = 0;
-        
-        for (const [botId, processInfo] of this.processes) {
-            if (processInfo.pid) {
-                const isRunning = await this.checkProcessRunning(processInfo.pid);
-                if (!isRunning) {
-                    this.addLogEntry(botId, `检测到死进程 PID: ${processInfo.pid}，清理中...`, 'warning');
-                    this.processes.delete(botId);
-                    this.stopStatusChecker(botId);
-                    cleanedCount++;
-                }
-            }
-        }
-        
-        if (cleanedCount > 0) {
-            await this.savePidToFile();
-        }
-        
-        return cleanedCount;
+        // 不再检测进程是否存活
+        return 0;
     }
 
     // 清理所有僵尸进程
