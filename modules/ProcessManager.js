@@ -416,64 +416,16 @@ class ProcessManager extends EventEmitter {
             this.addLogEntry(botId, `可执行文件: ${executablePath}`, 'info');
             this.addLogEntry(botId, `配置文件: ${configPath}`, 'info');
 
-            // 处理 Docker 环境和相对路径
-            let fullExePath;
-            if (path.isAbsolute(executablePath)) {
-                fullExePath = executablePath;
-            } else {
-                // 在 Docker 环境中，如果是相对路径，应该相对于工作目录
-                fullExePath = path.resolve(process.cwd(), executablePath);
-            }
-            
+            const fullExePath = path.isAbsolute(executablePath) ? executablePath : path.resolve(process.cwd(), executablePath);
             const fullConfigPath = path.isAbsolute(configPath) ? configPath : path.resolve(process.cwd(), configPath);
             const botWorkingDir = this.getBotWorkingDir(botId);
             
-            this.addLogEntry(botId, `当前工作目录: ${process.cwd()}`, 'info');
-            this.addLogEntry(botId, `机器人工作目录: ${botWorkingDir}`, 'info');
-            this.addLogEntry(botId, `解析后的可执行文件路径: ${fullExePath}`, 'info');
+            this.addLogEntry(botId, `工作目录: ${botWorkingDir}`, 'info');
 
             await fs.ensureDir(botWorkingDir);
 
-            // 检查多个可能的路径
-            const possiblePaths = [
-                fullExePath,
-                path.join(process.cwd(), 'Lagrange.OneBot'),
-                path.join(botWorkingDir, 'Lagrange.OneBot'),
-                './Lagrange.OneBot'
-            ];
-
-            let validExePath = null;
-            for (const testPath of possiblePaths) {
-                this.addLogEntry(botId, `检查路径: ${testPath}`, 'debug');
-                if (await fs.pathExists(testPath)) {
-                    validExePath = testPath;
-                    this.addLogEntry(botId, `找到可执行文件: ${testPath}`, 'success');
-                    break;
-                }
-            }
-
-            if (!validExePath) {
-                // 列出当前目录文件帮助调试
-                try {
-                    const files = await fs.readdir(process.cwd());
-                    this.addLogEntry(botId, `当前目录文件: ${files.join(', ')}`, 'debug');
-                } catch (e) {
-                    this.addLogEntry(botId, `无法列出目录文件: ${e.message}`, 'error');
-                }
+            if (!await fs.pathExists(fullExePath)) {
                 throw new Error(`可执行文件不存在: ${fullExePath}`);
-            }
-            
-            fullExePath = validExePath;
-            
-            // 验证文件详细信息
-            try {
-                const stats = await fs.stat(fullExePath);
-                this.addLogEntry(botId, `文件大小: ${stats.size} 字节`, 'debug');
-                this.addLogEntry(botId, `文件权限: ${(stats.mode & parseInt('777', 8)).toString(8)}`, 'debug');
-                this.addLogEntry(botId, `是否为文件: ${stats.isFile()}`, 'debug');
-                this.addLogEntry(botId, `是否为符号链接: ${stats.isSymbolicLink ? stats.isSymbolicLink() : 'N/A'}`, 'debug');
-            } catch (statError) {
-                this.addLogEntry(botId, `无法获取文件信息: ${statError.message}`, 'error');
             }
             if (!await fs.pathExists(fullConfigPath)) {
                 throw new Error(`配置文件不存在: ${fullConfigPath}`);
@@ -483,133 +435,15 @@ class ProcessManager extends EventEmitter {
 
             this.addLogEntry(botId, '启动子进程...', 'info');
             
-            // 在非 Windows 环境下（Docker/Linux），需要特殊处理
-            let childProcess;
-            if (this.isWindows) {
-                childProcess = spawn(fullExePath, {
-                    detached: false,
-                    stdio: ['ignore', 'pipe', 'pipe'],
-                    cwd: botWorkingDir,
-                    windowsHide: true
-                });
-            } else {
-                // Linux/Docker 环境：需要特殊处理
-                this.addLogEntry(botId, '使用 Linux/Docker 模式启动', 'info');
-                
-                // 确保文件有执行权限
-                try {
-                    await fs.chmod(fullExePath, '755');
-                    this.addLogEntry(botId, '已设置执行权限', 'info');
-                } catch (e) {
-                    this.addLogEntry(botId, `设置执行权限失败: ${e.message}`, 'warning');
-                }
-                
-                // 尝试多种启动方式
-                try {
-                    // 方法1：直接执行（不使用 shell）
-                    this.addLogEntry(botId, '尝试方法1：直接执行', 'debug');
-                    childProcess = spawn(fullExePath, [], {
-                        detached: false,
-                        stdio: ['ignore', 'pipe', 'pipe'],
-                        cwd: botWorkingDir,
-                        env: {
-                            ...process.env,
-                            PATH: `${process.env.PATH}:${path.dirname(fullExePath)}`
-                        }
-                    });
-                    
-                    // 等待进程启动
-                    await this.sleep(100);
-                    
-                    if (!childProcess.pid) {
-                        throw new Error('方法1失败：无法获取PID');
-                    }
-                } catch (error1) {
-                    this.addLogEntry(botId, `方法1失败: ${error1.message}`, 'warning');
-                    
-                    try {
-                        // 方法2：使用 sh 显式执行
-                        this.addLogEntry(botId, '尝试方法2：使用 sh 执行', 'debug');
-                        childProcess = spawn('sh', ['-c', fullExePath], {
-                            detached: false,
-                            stdio: ['ignore', 'pipe', 'pipe'],
-                            cwd: botWorkingDir,
-                            env: process.env
-                        });
-                        
-                        await this.sleep(100);
-                        
-                        if (!childProcess.pid) {
-                            throw new Error('方法2失败：无法获取PID');
-                        }
-                    } catch (error2) {
-                        this.addLogEntry(botId, `方法2失败: ${error2.message}`, 'warning');
-                        
-                        // 方法3：使用 exec 作为最后手段
-                        this.addLogEntry(botId, '尝试方法3：使用 exec', 'debug');
-                        const { exec: execFile } = require('child_process');
-                        
-                        childProcess = execFile(fullExePath, [], {
-                            cwd: botWorkingDir,
-                            env: process.env
-                        });
-                        
-                        // exec 返回的进程对象需要适配
-                        if (childProcess) {
-                            // 确保有 stdout 和 stderr
-                            if (!childProcess.stdout) {
-                                childProcess.stdout = childProcess.stdout || new (require('stream').PassThrough)();
-                            }
-                            if (!childProcess.stderr) {
-                                childProcess.stderr = childProcess.stderr || new (require('stream').PassThrough)();
-                            }
-                        }
-                    }
-                }
-            }
+            const childProcess = spawn(fullExePath, ['--config', fullConfigPath], {
+                detached: false,
+                stdio: ['ignore', 'pipe', 'pipe'], // 捕获stdout和stderr
+                cwd: botWorkingDir,
+                windowsHide: true
+            });
 
-            // 等待一小段时间让进程启动
-            await this.sleep(100);
-            
-            if (!childProcess || !childProcess.pid) {
-                // 尝试检查进程是否真的启动了
-                const errorDetails = {
-                    executable: fullExePath,
-                    workingDir: botWorkingDir,
-                    platform: os.platform(),
-                    arch: os.arch(),
-                    nodeVersion: process.version
-                };
-                
-                this.addLogEntry(botId, `启动失败详情: ${JSON.stringify(errorDetails, null, 2)}`, 'error');
-                
-                // 在 Docker 环境中提供更详细的建议
-                if (!this.isWindows) {
-                    this.addLogEntry(botId, '可能的解决方案：', 'info');
-                    this.addLogEntry(botId, '1. 确保 Lagrange.OneBot 是为当前架构编译的', 'info');
-                    this.addLogEntry(botId, '2. 检查文件是否是有效的可执行文件', 'info');
-                    this.addLogEntry(botId, '3. 尝试在容器中手动运行: ./Lagrange.OneBot', 'info');
-                    this.addLogEntry(botId, '4. 检查是否缺少依赖库', 'info');
-                    
-                    // 尝试获取文件类型信息
-                    try {
-                        const fileInfo = await this.executeCommand(`file ${fullExePath}`);
-                        this.addLogEntry(botId, `文件类型: ${fileInfo}`, 'debug');
-                    } catch (e) {
-                        this.addLogEntry(botId, `无法获取文件类型: ${e.message}`, 'debug');
-                    }
-                    
-                    // 尝试获取 ldd 信息（检查依赖）
-                    try {
-                        const lddInfo = await this.executeCommand(`ldd ${fullExePath}`);
-                        this.addLogEntry(botId, `依赖库信息: ${lddInfo}`, 'debug');
-                    } catch (e) {
-                        // ldd 可能不可用或文件不是动态链接的
-                        this.addLogEntry(botId, `无法获取依赖信息: ${e.message}`, 'debug');
-                    }
-                }
-                
-                throw new Error('无法启动进程，请查看上面的详细错误信息');
+            if (!childProcess.pid) {
+                throw new Error('无法获取进程PID');
             }
 
             // 设置进程日志监听
