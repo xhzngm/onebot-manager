@@ -7,7 +7,9 @@ RUN apk add --no-cache \
     unzip \
     curl \
     bash \
-    git
+    git \
+    icu-libs \
+    libc6-compat
 
 # 设置临时工作目录
 WORKDIR /tmp
